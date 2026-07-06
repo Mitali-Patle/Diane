@@ -21,7 +21,14 @@ ollama pull moondream
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[avatar,dev]"
+# openwakeword 0.6.0 declares tflite-runtime (no Python 3.12 wheels); we use its
+# ONNX path instead, so install without deps:
+.venv/bin/pip install --no-deps openwakeword==0.6.0
+.venv/bin/pip install tqdm scipy requests   # the openwakeword deps we do need
 ```
+
+Wake/VAD model artifacts: `python -c "import openwakeword.utils as u; u.download_models(['hey_jarvis'])"`
+plus `models/silero_vad.onnx` (see models.md).
 
 ## Models directory
 
