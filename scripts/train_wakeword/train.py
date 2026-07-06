@@ -55,6 +55,10 @@ def _windows(emb: np.ndarray, positive: bool) -> list[np.ndarray]:
     return [emb[s : s + WINDOW].ravel() for s in range(0, len(emb) - WINDOW + 1, 4)]
 
 
+REAL_OVERSAMPLE = 12  # each real-mic window counts this many times vs synthetic
+REAL_HOLDOUT = 2      # real positive clips kept out of training for validation
+
+
 def main() -> None:
     xs, ys = [], []
     for kind, label in (("positive", 1), ("negative", 0)):
@@ -65,6 +69,22 @@ def main() -> None:
             for w in _windows(emb, positive=label == 1):
                 xs.append(w)
                 ys.append(label)
+
+    # Real-mic samples (domain adaptation, DL-12): oversampled, minus a holdout.
+    holdout_clips: list[np.ndarray] = []
+    for kind, label in (("real_positive", 1), ("real_negative", 0)):
+        files = sorted((DATA / kind).glob("*.wav"))
+        if label == 1 and len(files) > REAL_HOLDOUT:
+            holdout_clips = [_read_wav(f) for f in files[-REAL_HOLDOUT:]]
+            files = files[:-REAL_HOLDOUT]
+        print(f"embedding {len(files)} {kind} clips (x{REAL_OVERSAMPLE})...")
+        for f in files:
+            emb = _embed(_read_wav(f))
+            for w in _windows(emb, positive=label == 1):
+                for _ in range(REAL_OVERSAMPLE):
+                    xs.append(w)
+                    ys.append(label)
+
     x = np.array(xs, dtype=np.float32)
     y = np.array(ys)
     print(f"dataset: {x.shape}, positives={int(y.sum())}, negatives={int((1 - y).sum())}")
@@ -91,6 +111,13 @@ def main() -> None:
         fa = float(np.mean(proba[yte == 0] > thr))
         fr = float(np.mean(proba[yte == 1] <= thr))
         print(f"  thr={thr}: false-accept={fa:.4f} false-reject={fr:.4f}")
+
+    # Held-out REAL clips — the number that actually matters (DL-12).
+    for i, clip in enumerate(holdout_clips):
+        emb = _embed(clip)
+        ws = np.array(_windows(emb, positive=True), dtype=np.float32)
+        best = float(clf.predict_proba(ws)[:, 1].max())
+        print(f"  held-out real positive clip {i}: best window score {best:.3f}")
 
     from skl2onnx import to_onnx
 

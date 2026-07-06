@@ -32,6 +32,8 @@ VAD_CHUNK = 512          # Silero v5 operates on 512-sample chunks @ 16 kHz
 WAKE_CHUNK = 1280        # openWakeWord operates on 80 ms windows
 PRE_ROLL_S = 0.5         # audio kept from before speech onset
 MAX_UTTERANCE_S = 15.0
+GRACE_S = 5.0            # after wake: wait this long for speech to START before giving up
+REFRACTORY_S = 1.0       # after an utterance: ignore wake hits (scorer buffer residue)
 BARGE_IN_TURN = -1       # Cancel.turn_id sentinel: "whatever turn is speaking now"
 
 
@@ -121,7 +123,14 @@ def make_wake_scorer(model_name: str) -> WakeScorer:
 
 
 class SileroVad:
-    """Silero VAD v5 via onnxruntime directly (no torch dependency)."""
+    """Silero VAD v5 via onnxruntime directly (no torch dependency).
+
+    v5 expects each 512-sample chunk to be prefixed with the last 64 samples
+    of the previous chunk (the official wrapper does this internally) — feeding
+    bare chunks silently degrades probabilities to ~0 on real speech.
+    """
+
+    CONTEXT = 64
 
     def __init__(self, model_path: str) -> None:
         import onnxruntime as ort
@@ -131,17 +140,21 @@ class SileroVad:
         opts.intra_op_num_threads = 1
         self._sess = ort.InferenceSession(model_path, opts, providers=["CPUExecutionProvider"])
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros(self.CONTEXT, dtype=np.float32)
         self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
 
     def __call__(self, chunk: np.ndarray) -> float:
-        audio = (chunk.astype(np.float32) / 32768.0).reshape(1, -1)
+        audio = chunk.astype(np.float32) / 32768.0
+        with_context = np.concatenate([self._context, audio]).reshape(1, -1)
+        self._context = audio[-self.CONTEXT:]
         prob, self._state = self._sess.run(
-            None, {"input": audio, "state": self._state, "sr": self._sr}
+            None, {"input": with_context, "state": self._state, "sr": self._sr}
         )
         return float(prob.item())
 
     def reset(self) -> None:
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros(self.CONTEXT, dtype=np.float32)
 
 
 class WakeVadStage:
@@ -199,11 +212,23 @@ class WakeVadStage:
         # under test and correct if processing runs faster/slower than real time.
         trailing_silence_s = 0.0
         utterance_s = 0.0
+        seen_speech = False   # trailing-silence cutoff arms only after speech starts
+        audio_clock = 0.0
+        refractory_until = 0.0
         capture_start = 0.0
+
+        def _reset_wake() -> None:
+            # The scorer's internal feature buffer still contains the wake
+            # phrase after a hit and would re-fire until it scrolls out.
+            self._wake_buf = np.empty(0, dtype=np.int16)
+            reset = getattr(self._wake, "reset", None)
+            if callable(reset):
+                reset()
 
         async for frame in frames:
             samples = np.frombuffer(frame.pcm, dtype=np.int16)
             frame_s = len(samples) / SAMPLE_RATE
+            audio_clock += frame_s
             if not capturing:
                 pre_roll.append(samples)
                 is_speech = self._vad(samples) >= self._vad_threshold
@@ -218,13 +243,17 @@ class WakeVadStage:
                         self._activated.set()
                 elif self._current_state() is not State.SPEAKING:
                     self._cancelled_this_episode = False
-                if self._wake_hit(samples) or self._activated.is_set():
+                in_refractory = audio_clock < refractory_until
+                woke = self._wake_hit(samples) and not in_refractory
+                if woke or self._activated.is_set():
                     self._activated.clear()
                     capturing = True
                     captured = list(pre_roll)
                     trailing_silence_s = 0.0
                     utterance_s = 0.0
+                    seen_speech = False
                     capture_start = time.monotonic()
+                    _reset_wake()
                     if self._on_capture_start is not None:
                         self._on_capture_start()
                     log.info("wake detected -> capturing (t=%.3f)", frame.timestamp)
@@ -232,16 +261,23 @@ class WakeVadStage:
                 captured.append(samples)
                 utterance_s += frame_s
                 if self._vad(samples) >= self._vad_threshold:
+                    seen_speech = True
                     trailing_silence_s = 0.0
                 else:
                     trailing_silence_s += frame_s
                 too_long = utterance_s > MAX_UTTERANCE_S
-                if trailing_silence_s >= self._eou_s or too_long:
+                gave_up = not seen_speech and utterance_s > GRACE_S
+                done = (seen_speech and trailing_silence_s >= self._eou_s) or too_long
+                if done or gave_up:
                     pcm = np.concatenate(captured).tobytes()
                     capturing = False
                     captured = []
                     pre_roll.clear()
-                    self._wake_buf = np.empty(0, dtype=np.int16)
+                    _reset_wake()
+                    refractory_until = audio_clock + REFRACTORY_S
+                    if gave_up or not seen_speech:
+                        log.info("capture abandoned: no speech within %.1fs", GRACE_S)
+                        continue
                     log.info(
                         "utterance complete: %.2fs (%s)",
                         len(pcm) / 2 / SAMPLE_RATE,

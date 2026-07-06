@@ -81,12 +81,58 @@ async def test_wake_scorer_receives_80ms_chunks():
 
 
 async def test_activate_starts_capture_without_wake():
-    vad = ScriptedScorer(hot=set())  # all silence: capture ends after eou
-    stage = make_stage(vad=vad, eou_ms=64)  # 2 frames of silence end it
+    vad = ScriptedScorer(hot=set(range(2, 6)))  # speech then silence
+    stage = make_stage(vad=vad, eou_ms=64)
     stage.activate()
-    frames = [_frame() for _ in range(10)]
+    frames = [_frame() for _ in range(12)]
     utterances = [u async for u in stage.utterances(_feed(frames))]
     assert len(utterances) == 1
+
+
+async def test_pause_after_wake_does_not_end_capture():
+    """Live-bug regression: a pause after the wake word must not end the
+    utterance before the user starts their sentence — the trailing-silence
+    cutoff arms only once speech has been seen."""
+    wake = ScriptedScorer(hot={0})
+    # long silence (frames 3..40 ≈ 1.2 s >> eou) then speech at 41..50
+    vad = ScriptedScorer(hot=set(range(41, 51)))
+    stage = make_stage(wake=wake, vad=vad, eou_ms=100)
+    frames = [_frame() for _ in range(60)]
+    utterances = [u async for u in stage.utterances(_feed(frames))]
+    assert len(utterances) == 1
+    # capture spans the pause AND the sentence
+    assert len(utterances[0].pcm) // 2 >= 45 * VAD_CHUNK
+
+
+async def test_no_speech_after_wake_abandons_capture():
+    wake = ScriptedScorer(hot={0})
+    stage = make_stage(wake=wake, vad=ScriptedScorer(hot=set()), eou_ms=100)
+    n = int(7.0 / FRAME_S)  # 7 s of pure silence > GRACE_S
+    utterances = [u async for u in stage.utterances(_feed(_frame() for _ in range(n)))]
+    assert utterances == []  # no ghost turn from a wake with no follow-up
+
+
+async def test_refractory_and_reset_block_immediate_rewake():
+    """Live-bug regression: after an utterance the scorer is reset and wake
+    hits are ignored for the refractory window, so residue can't re-trigger."""
+
+    class AlwaysHotWake:
+        def __init__(self):
+            self.resets = 0
+
+        def __call__(self, chunk):
+            return 1.0  # scorer buffer residue: would fire on every window
+
+        def reset(self):
+            self.resets += 1
+
+    wake = AlwaysHotWake()
+    vad = ScriptedScorer(hot=set(range(2, 6)))  # one burst of speech, then silence
+    stage = make_stage(wake=wake, vad=vad, eou_ms=64)
+    frames = [_frame() for _ in range(30)]  # ~1 s total < utterance + refractory
+    utterances = [u async for u in stage.utterances(_feed(frames))]
+    assert len(utterances) == 1  # exactly one, despite the scorer firing forever
+    assert wake.resets >= 2      # reset on capture start and on completion
 
 
 async def test_max_length_cutoff():
