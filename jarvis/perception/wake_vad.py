@@ -65,6 +65,61 @@ class OpenWakeWord:
         self._model.reset()
 
 
+class CustomWakeWord:
+    """Scorer for owner-trained wake models (e.g. models/hi_diane.onnx, DL-12).
+
+    Uses the same openWakeWord streaming feature frontend as the pretrained
+    models (zero train/serve skew), with a small ONNX classifier head over a
+    16-frame embedding window.
+    """
+
+    WINDOW = 16
+
+    def __init__(self, model_path: str) -> None:
+        import onnxruntime as ort
+        from openwakeword.utils import AudioFeatures
+
+        self._feats = AudioFeatures(inference_framework="onnx")
+        opts = ort.SessionOptions()
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 1
+        self._sess = ort.InferenceSession(model_path, opts, providers=["CPUExecutionProvider"])
+        self._input = self._sess.get_inputs()[0].name
+
+    def __call__(self, chunk: np.ndarray) -> float:
+        self._feats(chunk)  # streaming embedding update (80 ms per call)
+        buf = np.array(self._feats.feature_buffer)
+        if len(buf) < self.WINDOW:
+            return 0.0
+        x = buf[-self.WINDOW:].ravel()[None].astype(np.float32)
+        # skl2onnx MLP outputs [label, probabilities]; P(wake) = probabilities[0, 1]
+        prob = self._sess.run(None, {self._input: x})[1]
+        return float(prob[0, 1])
+
+    def reset(self) -> None:
+        from openwakeword.utils import AudioFeatures
+
+        self._feats = AudioFeatures(inference_framework="onnx")
+
+
+def make_wake_scorer(model_name: str) -> WakeScorer:
+    """Factory: custom trained model if models/<name>.onnx exists, else pretrained.
+
+    A configured custom model that has gone missing falls back to hey_jarvis
+    (logged) rather than crash-looping the service before the supervisor exists.
+    """
+    from jarvis.config import ROOT
+
+    custom = ROOT / "models" / f"{model_name}.onnx"
+    if custom.exists():
+        return CustomWakeWord(str(custom))
+    try:
+        return OpenWakeWord(model_name)
+    except Exception:
+        log.exception("wake model %r unavailable; falling back to hey_jarvis", model_name)
+        return OpenWakeWord("hey_jarvis")
+
+
 class SileroVad:
     """Silero VAD v5 via onnxruntime directly (no torch dependency)."""
 

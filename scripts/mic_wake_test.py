@@ -14,18 +14,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from jarvis.audio.input_thread import AudioInput
 from jarvis.bus import Bus
-from jarvis.perception.wake_vad import OpenWakeWord, SileroVad, WakeVadStage
+from jarvis.perception.wake_vad import SileroVad, WakeVadStage, make_wake_scorer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
 
 async def main() -> None:
+    model = sys.argv[1] if len(sys.argv) > 1 else "hey_jarvis"
     audio = AudioInput()
     audio.start()
-    wake = OpenWakeWord("hey_jarvis")
+    wake = make_wake_scorer(model)  # pass 'hi_diane' to test the custom model
     vad = SileroVad("models/silero_vad.onnx")
     stage = WakeVadStage(Bus(), wake, vad)
-    print("Listening... say 'hey jarvis' then a sentence. Ctrl-C to quit.")
+    print(f"Listening for '{model}'... speak the wake word then a sentence. Ctrl-C quits.")
     try:
         async for utt in stage.utterances(audio.frames()):
             dur = len(utt.pcm) / 2 / 16000

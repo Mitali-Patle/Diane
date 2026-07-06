@@ -9,8 +9,8 @@ audio:
   output_device: null
 
 wake:
-  model: "hey_jarvis"         # interim; swaps to "hi_diane" custom model at M7
-  threshold: 0.5
+  model: "hi_diane"           # custom-trained (DL-12); fall back to "hey_jarvis" if flaky
+  threshold: 0.6
   vad_threshold: 0.5
   end_of_utterance_ms: 700    # Silero trailing-silence window
 
@@ -24,6 +24,7 @@ llm:
   host: "http://localhost:11434"
   model: "qwen2.5:3b-instruct"
   context_turns: 10           # rolling context window (§12)
+  keep_alive: "2h"            # keep the model resident between turns (SC2)
 
 vlm:
   model: "moondream"

@@ -258,7 +258,8 @@ PySide6 + qasync in `pyproject.toml` (avatar extra); Qt runtime packages documen
 - **DL-9** | v1.1 | Avatar packs = declarative YAML + images, no code | *rejected:* Python plugin packs.
 - **DL-10** | v1.1 | Click-to-activate ≡ wake word; click never barge-ins | *rejected:* click = universal interrupt.
 - **DL-11** | v1.2 | Python 3.12 (system) instead of handbook's 3.11 | all deps support 3.12; no pin-down benefit | *rejected:* installing a parallel 3.11.
-- **DL-12** | v1.2 | Wake word = custom "Hi Diane"; interim `hey_jarvis` until the trained model passes a recorded validation set | owner decision 2026-07-06.
+- **DL-12** | v1.2 | Wake word = custom "Hi Diane"; interim `hey_jarvis` until the trained model passes a recorded validation set | owner decision 2026-07-06. **Status:** trained (`scripts/train_wakeword/`, synthetic holdout FA 0.3%/FR 1.9%), set as default; real-mic validation still owed — revert `wake.model` to `hey_jarvis` if it misbehaves.
+- **DL-14** | v1.2 | Wake training uses synthetic Piper/LibriTTS samples + oww embedding frontend + sklearn MLP→ONNX | *rejected:* full openWakeWord torch training pipeline (GB-scale negative corpora impractical on this connection); Porcupine custom (licensing).
 - **DL-13** | v1.2 | v1.0 sections reconstructed in this document; repo copy authoritative | owner decision 2026-07-06.
 
 ## 25. Open Questions

@@ -70,12 +70,33 @@ class OllamaClient:
         cfg = config.get()["llm"]
         self._client = ollama.AsyncClient(host=cfg["host"])
         self._model = cfg["model"]
+        self._keep_alive = cfg["keep_alive"]
+
+    async def warmup(self) -> None:
+        """Load the model into memory so turn 1 isn't 10s slower than turn 2 (SC2).
+
+        At login the Ollama unit may accept connections seconds after us, so
+        retry patiently instead of burning the supervisor's 3 strikes at boot.
+        """
+        for _ in range(30):
+            try:
+                await self._client.generate(
+                    model=self._model, prompt="", keep_alive=self._keep_alive
+                )
+                return
+            except Exception:
+                await asyncio.sleep(2.0)
+        log.warning("warmup gave up after 60s; first turn will be slow")
 
     async def chat(
         self, messages: list[dict], tools: list[dict] | None = None
     ) -> AsyncIterator[str | ToolCall]:
         stream = await self._client.chat(
-            model=self._model, messages=messages, stream=True, tools=tools or []
+            model=self._model,
+            messages=messages,
+            stream=True,
+            tools=tools or [],
+            keep_alive=self._keep_alive,
         )
         async for part in stream:
             msg = part["message"]

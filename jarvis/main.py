@@ -18,7 +18,7 @@ from jarvis.brain.orchestrator import OllamaClient, Orchestrator
 from jarvis.bus import Bus, Cancel, State
 from jarvis.perception.stt import SpeechToText
 from jarvis.perception.vision import Vision
-from jarvis.perception.wake_vad import OpenWakeWord, SileroVad, Utterance, WakeVadStage
+from jarvis.perception.wake_vad import SileroVad, Utterance, WakeVadStage, make_wake_scorer
 from jarvis.voice.tts import TextToSpeech
 
 
@@ -29,15 +29,14 @@ async def run() -> None:
     log.info("Diane starting (wake=%s, llm=%s)", cfg["wake"]["model"], cfg["llm"]["model"])
 
     output = AudioOutput()
-    orch = Orchestrator(
-        bus, OllamaClient(), tools=Actions(vision=Vision()), external_playback=True
-    )
+    llm = OllamaClient()
+    orch = Orchestrator(bus, llm, tools=Actions(vision=Vision()), external_playback=True)
     stt = SpeechToText()
     tts = TextToSpeech()
     audio = AudioInput()
     stage = WakeVadStage(
         bus,
-        OpenWakeWord(cfg["wake"]["model"]),
+        make_wake_scorer(cfg["wake"]["model"]),
         SileroVad(str(config.ROOT / "models" / "silero_vad.onnx")),
         current_state=lambda: orch.state,
         on_capture_start=orch.on_wake,
@@ -89,12 +88,31 @@ async def run() -> None:
             await output.drain()
             orch.finish_turn()
 
+    async def supervised(name: str, factory) -> None:
+        """NFR4: contain stage crashes; restart with backoff; 3 crashes/60s -> stage off."""
+        crashes: list[float] = []
+        while True:
+            try:
+                await factory()
+                return  # clean completion
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("stage %s crashed", name)
+                now = asyncio.get_running_loop().time()
+                crashes = [t for t in crashes if now - t < 60] + [now]
+                if len(crashes) >= 3:
+                    log.error("stage %s: 3 crashes in 60s, disabled for this session", name)
+                    return
+                await asyncio.sleep(1.0)
+
     audio.start()
     tasks = [
-        asyncio.create_task(orch.event_loop(), name="events"),
-        asyncio.create_task(capture(), name="capture"),
-        asyncio.create_task(flush_on_cancel(), name="flush"),
-        asyncio.create_task(converse(), name="converse"),
+        asyncio.create_task(supervised("events", orch.event_loop), name="events"),
+        asyncio.create_task(supervised("capture", capture), name="capture"),
+        asyncio.create_task(supervised("flush", flush_on_cancel), name="flush"),
+        asyncio.create_task(supervised("converse", converse), name="converse"),
+        asyncio.create_task(supervised("warmup", llm.warmup), name="warmup"),
     ]
     try:
         await asyncio.gather(*tasks)
