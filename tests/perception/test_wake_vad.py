@@ -149,10 +149,22 @@ async def test_speech_during_speaking_publishes_barge_in_cancel():
     bus = Bus()
     q = bus.subscribe()
     stage = make_stage(bus=bus, vad=lambda c: 1.0, state=State.SPEAKING)
-    frames = [_frame() for _ in range(3)]
+    # sustained speech: streak builds inside SPEAKING after the 0.5s onset grace
+    frames = [_frame() for _ in range(30)]
     async for _ in stage.utterances(_feed(frames)):
         pass
     assert isinstance(q.get_nowait(), Cancel)
+
+
+async def test_brief_noise_does_not_barge_in():
+    """A pop/click (under the sustained-speech threshold) must not cancel."""
+    bus = Bus()
+    q = bus.subscribe()
+    vad = ScriptedScorer(hot={1, 2})  # only 2 consecutive speech frames
+    stage = make_stage(bus=bus, vad=vad, state=State.SPEAKING)
+    async for _ in stage.utterances(_feed([_frame() for _ in range(8)])):
+        pass
+    assert q.empty()
 
 
 async def test_no_barge_in_when_idle():
@@ -168,7 +180,7 @@ async def test_barge_in_cancel_is_debounced_per_episode():
     bus = Bus()
     q = bus.subscribe()
     stage = make_stage(bus=bus, vad=lambda c: 1.0, state=State.SPEAKING)
-    async for _ in stage.utterances(_feed([_frame() for _ in range(10)])):
+    async for _ in stage.utterances(_feed([_frame() for _ in range(60)])):
         pass
     assert isinstance(q.get_nowait(), Cancel)
     assert q.empty()  # exactly one Cancel for continuous speech

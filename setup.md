@@ -46,3 +46,18 @@ see `models.md` for exact artifacts and download commands.
 ```bash
 systemctl --user enable --now diane.service   # unit installed by scripts/install_service.sh
 ```
+
+## Echo cancellation (required for barge-in)
+
+Without AEC the assistant hears its own TTS from the speakers and cancels
+itself. `~/.config/pipewire/pipewire-pulse.conf.d/99-diane-echo-cancel.conf`
+(created during setup) loads `module-echo-cancel` (webrtc) and sets
+`diane_ec_source`/`diane_ec_sink` as defaults. One-off manual load:
+
+```bash
+pactl load-module module-echo-cancel aec_method=webrtc source_name=diane_ec_source sink_name=diane_ec_sink
+pactl set-default-source diane_ec_source && pactl set-default-sink diane_ec_sink
+```
+
+Also check mic gain (`pactl get-source-volume @DEFAULT_SOURCE@`) — this
+machine shipped at 18%, which is inaudible to the wake model; ~70% is right.

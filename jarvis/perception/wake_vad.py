@@ -34,6 +34,10 @@ PRE_ROLL_S = 0.5         # audio kept from before speech onset
 MAX_UTTERANCE_S = 15.0
 GRACE_S = 5.0            # after wake: wait this long for speech to START before giving up
 REFRACTORY_S = 1.0       # after an utterance: ignore wake hits (scorer buffer residue)
+BARGE_IN_FRAMES = 8      # ~256 ms of sustained speech before barge-in fires (D-5;
+                         # echo-cancel is the main defense against self-hearing)
+BARGE_IN_ONSET_GRACE_S = 0.5  # ignore barge-in right after SPEAKING starts: the
+                              # webrtc AEC needs a moment to converge on the TTS
 BARGE_IN_TURN = -1       # Cancel.turn_id sentinel: "whatever turn is speaking now"
 
 
@@ -188,6 +192,9 @@ class WakeVadStage:
         self._activated = asyncio.Event()
         self._wake_buf = np.empty(0, dtype=np.int16)
         self._cancelled_this_episode = False
+        self._speech_streak = 0
+        self._was_speaking = False
+        self._speaking_since = 0.0
         self._on_capture_start = on_capture_start
 
     def activate(self) -> None:
@@ -232,9 +239,23 @@ class WakeVadStage:
             if not capturing:
                 pre_roll.append(samples)
                 is_speech = self._vad(samples) >= self._vad_threshold
-                if is_speech and self._current_state() is State.SPEAKING:
+                speaking = self._current_state() is State.SPEAKING
+                if speaking and not self._was_speaking:
+                    # entering SPEAKING: the streak must build from zero HERE,
+                    # inside the state — pre-existing ambient speech can't count —
+                    # and only after the AEC onset grace.
+                    self._speech_streak = 0
+                    self._speaking_since = audio_clock
+                self._was_speaking = speaking
+                self._speech_streak = self._speech_streak + 1 if is_speech else 0
+                if (
+                    speaking
+                    and self._speech_streak >= BARGE_IN_FRAMES
+                    and audio_clock - self._speaking_since >= BARGE_IN_ONSET_GRACE_S
+                ):
                     # Barge-in: sole publisher of Cancel from voice (§9, FR7).
-                    # Debounced: one Cancel per SPEAKING episode, not per frame.
+                    # Debounced: one Cancel per SPEAKING episode; requires
+                    # sustained speech so a pop/click can't cancel a turn.
                     if not self._cancelled_this_episode:
                         self._cancelled_this_episode = True
                         self._bus.publish(Cancel(turn_id=BARGE_IN_TURN))
