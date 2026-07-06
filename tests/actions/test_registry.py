@@ -88,6 +88,8 @@ def test_tool_specs_enums_match_whitelists():
 
     cfg = config.get()["tools"]
     specs = {s["function"]["name"]: s for s in registry.tool_specs()}
-    assert set(specs) == {"open_app", "list_dir", "check_disk", "run_command", "set_avatar"}
+    assert set(specs) == {
+        "open_app", "list_dir", "check_disk", "run_command", "describe_screen", "set_avatar",
+    }
     app_enum = specs["open_app"]["function"]["parameters"]["properties"]["name"]["enum"]
     assert set(app_enum) == set(cfg["app_whitelist"])

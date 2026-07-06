@@ -34,6 +34,7 @@ class ResolvedAction:
     tool: str
     argv: tuple[str, ...] | None = None      # subprocess actions
     avatar_command: tuple[str, str] | None = None  # (action, arg) bus publications
+    screen_query: str | None = None          # on-demand vision (P8), no subprocess
     destructive: bool = False
 
 
@@ -109,6 +110,23 @@ def tool_specs() -> list[dict]:
         {
             "type": "function",
             "function": {
+                "name": "describe_screen",
+                "description": "Take one screenshot and describe what is currently on "
+                "the user's screen. Use when asked what's on the screen.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "Optional specific question about the screen.",
+                        }
+                    },
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "set_avatar",
                 "description": "Switch the desktop avatar to an installed pack.",
                 "parameters": {
@@ -166,6 +184,10 @@ def resolve(call: ToolCall, installed_packs: tuple[str, ...] = ()) -> ResolvedAc
                 + ", ".join(sorted(allowed)) + "."
             )
         return ResolvedAction(tool="run_command", argv=_COMMAND_ARGV[name])
+
+    if call.name == "describe_screen":
+        question = str(call.args.get("question", "")).strip()
+        return ResolvedAction(tool="describe_screen", screen_query=question or None)
 
     if call.name == "set_avatar":
         name = str(call.args.get("name", "")).strip().lower()

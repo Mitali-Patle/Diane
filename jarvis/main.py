@@ -17,6 +17,7 @@ from jarvis.brain.chunker import phrases
 from jarvis.brain.orchestrator import OllamaClient, Orchestrator
 from jarvis.bus import Bus, Cancel, State
 from jarvis.perception.stt import SpeechToText
+from jarvis.perception.vision import Vision
 from jarvis.perception.wake_vad import OpenWakeWord, SileroVad, Utterance, WakeVadStage
 from jarvis.voice.tts import TextToSpeech
 
@@ -28,7 +29,9 @@ async def run() -> None:
     log.info("Diane starting (wake=%s, llm=%s)", cfg["wake"]["model"], cfg["llm"]["model"])
 
     output = AudioOutput()
-    orch = Orchestrator(bus, OllamaClient(), tools=Actions(), external_playback=True)
+    orch = Orchestrator(
+        bus, OllamaClient(), tools=Actions(vision=Vision()), external_playback=True
+    )
     stt = SpeechToText()
     tts = TextToSpeech()
     audio = AudioInput()
