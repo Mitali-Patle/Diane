@@ -221,6 +221,7 @@ Each milestone ends: tests green → handbook-auditor review → commit + push. 
 - **M6 — Eyes:** screenshot → moondream description. Exit: SC7 (CPU).
 - **M7 — Always-on:** custom "Hi Diane" wake model (trained, validated, config swap); supervisor (NFR4); systemd --user unit (`After=graphical-session.target`); SC1–SC7 measured. Handbook as-built update happens **after M8**.
 - **M8 — Face:** avatar package + reference packs; window, animator, eye tracking, click-to-activate, context menu, `set_avatar`, hot-swap, fallback dot avatar; SC8–SC10 measured; latency CI extended; Appendix B validated by building the second pack purely from its instructions (the doc test: if it needs a code change, Appendix B or `packs.py` is wrong). **Must not start before M7 passes.**
+  *Status 2026-07-06:* code complete with placeholder code-drawn `cat` pack (D-6); SC8/SC10 asserted in offscreen tests; live state-cycle smoke passed on X11. Outstanding: owner-chosen art, the `axolotl` pack (Appendix B doc test) built from that art, and SC9 idle-CPU measurement over a long session.
 
 ## 21. Deployment
 

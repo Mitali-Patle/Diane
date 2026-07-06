@@ -13,6 +13,7 @@ dependencies = [
     "ollama>=0.3",
     "piper-tts>=1.2",
     "mss>=9.0",
+    "pillow>=10.0",
     "onnxruntime>=1.17",
 ]
 

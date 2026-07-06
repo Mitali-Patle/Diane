@@ -1,0 +1,28 @@
+name: "Cat"
+version: 1
+author: "placeholder (code-drawn)"
+frame_size: [128, 128]
+anchor: bottom-center
+
+states:
+  idle:      {anim: idle,      fps: 2,  loop: true}
+  listening: {anim: listening, fps: 4,  loop: true}
+  thinking:  {anim: thinking,  fps: 3,  loop: true}
+  speaking:  {anim: speaking,  fps: 6,  loop: true}
+  error:     {anim: error,     fps: 1,  loop: false}
+
+fallbacks:
+  speaking: idle
+  thinking: idle
+  listening: idle
+  error: idle
+
+overlays:
+  blink: {anim: blink, fps: 16, only_in: [idle]}
+
+eyes:
+  pupil: eyes/pupil.png
+  sockets:
+    - {center: [48, 72], radius: 4}
+    - {center: [80, 72], radius: 4}
+  hide_in: [blink, error]

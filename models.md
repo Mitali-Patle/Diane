@@ -33,6 +33,9 @@ piper voice ≈ 65 MB, wake/VAD < 50 MB. Total ≈ 4.5 GB.
 | First phrase → first audio (Piper) | ~0.3 s | <0.8 s | ✓ |
 | SC7 screen description (moondream, warm) | 11.5 s | <15 s CPU | ✓ |
 | SC2 end-of-speech → first spoken word | ~3.4 s | <3 s CPU | ✗ marginal |
+| SC8 state event → frame selection | <1 ms (offscreen test asserts <100 ms) | <100 ms | ✓ |
+| SC9 avatar idle (cat pack, eyes on, X11) | 2.9% of one core, 62 MB RSS | <3% / <80 MB | ✓ |
+| SC10 pack hot-swap | <0.1 s | <1 s | ✓ |
 
 SC2 tuning options (open): smaller LLM (qwen2.5:1.5b-instruct), trim tool
 schemas from the prompt for non-tool turns, or accept ~3.5 s on Tier A.
