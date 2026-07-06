@@ -131,3 +131,28 @@ async def test_barge_in_via_on_wake_race_still_cancels():
     assert len(tokens) < 50
     assert orch.state is State.LISTENING
     loop_task.cancel()
+
+
+async def test_external_playback_keeps_speaking_until_finish_turn():
+    bus = Bus()
+    q = bus.subscribe()
+    orch = Orchestrator(bus, FakeLlm(["Hi", "."]), external_playback=True)
+    async for _ in orch.run_turn(FinalTranscript("hello", turn_id=1)):
+        pass
+    assert orch.state is State.SPEAKING  # playback still owed
+    orch.finish_turn()
+    assert orch.state is State.IDLE
+    assert states_from(q) == [State.THINKING, State.SPEAKING, State.IDLE]
+
+
+async def test_finish_turn_noop_after_barge_in():
+    bus = Bus()
+    orch = Orchestrator(bus, FakeLlm(["a"] * 10, delay=0.01), external_playback=True)
+    tokens = []
+    async for t in orch.run_turn(FinalTranscript("x", turn_id=1)):
+        tokens.append(t)
+        if len(tokens) == 2:
+            orch.on_wake()  # barge-in
+    assert orch.state is State.LISTENING
+    orch.finish_turn()
+    assert orch.state is State.LISTENING  # not clobbered to IDLE

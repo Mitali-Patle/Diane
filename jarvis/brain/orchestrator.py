@@ -96,10 +96,15 @@ class Orchestrator:
         llm: LlmClient,
         tools: ToolRunner | None = None,
         system_prompt: str = SYSTEM_PROMPT,
+        external_playback: bool = False,
     ) -> None:
         self._bus = bus
         self._llm = llm
         self._tools = tools
+        # With external playback (M5+), SPEAKING must cover audio playout, not
+        # just generation: the composition root calls finish_turn() after the
+        # output buffer drains, and run_turn leaves the state at SPEAKING.
+        self._external_playback = external_playback
         self._context_turns: int = config.get()["llm"]["context_turns"]
         self._messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         self._state = State.IDLE
@@ -222,4 +227,14 @@ class Orchestrator:
             self._messages.append({"role": "assistant", "content": "".join(generated)})
             self._trim_context()
         if not self._cancelled.is_set():
+            if self._external_playback and generated:
+                return  # SPEAKING persists until finish_turn() after playout
+            self._set_state(State.IDLE)
+
+    def finish_turn(self) -> None:
+        """Playback drained (external_playback mode): SPEAKING/THINKING -> IDLE.
+
+        A no-op if a barge-in already moved the state to LISTENING.
+        """
+        if not self._cancelled.is_set() and self._state in (State.SPEAKING, State.THINKING):
             self._set_state(State.IDLE)
