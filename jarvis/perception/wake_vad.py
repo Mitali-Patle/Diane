@@ -107,6 +107,7 @@ class WakeVadStage:
         vad_threshold: float | None = None,
         end_of_utterance_ms: int | None = None,
         current_state: Callable[[], State] = lambda: State.IDLE,
+        on_capture_start: Callable[[], None] | None = None,
     ) -> None:
         cfg = config.get()["wake"]
         self._bus = bus
@@ -119,6 +120,7 @@ class WakeVadStage:
         self._activated = asyncio.Event()
         self._wake_buf = np.empty(0, dtype=np.int16)
         self._cancelled_this_episode = False
+        self._on_capture_start = on_capture_start
 
     def activate(self) -> None:
         """External trigger equivalent to a wake hit (AVATAR_ACTIVATE path)."""
@@ -156,6 +158,9 @@ class WakeVadStage:
                     if not self._cancelled_this_episode:
                         self._cancelled_this_episode = True
                         self._bus.publish(Cancel(turn_id=BARGE_IN_TURN))
+                        # Barge-in speech becomes the next utterance: the pre-roll
+                        # already holds its onset, so start capturing now (FR7).
+                        self._activated.set()
                 elif self._current_state() is not State.SPEAKING:
                     self._cancelled_this_episode = False
                 if self._wake_hit(samples) or self._activated.is_set():
@@ -165,6 +170,8 @@ class WakeVadStage:
                     trailing_silence_s = 0.0
                     utterance_s = 0.0
                     capture_start = time.monotonic()
+                    if self._on_capture_start is not None:
+                        self._on_capture_start()
                     log.info("wake detected -> capturing (t=%.3f)", frame.timestamp)
             else:
                 captured.append(samples)

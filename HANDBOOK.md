@@ -88,7 +88,9 @@ Single Python process (3.12 — DL-11). Concurrency domains:
 Pipeline: mic → ring buffer → wake+VAD → STT → orchestrator → {tool executor ‖ chunker → TTS → playback}. The bus's `STATE_CHANGED` events are additionally consumed by the avatar animator; the avatar publishes `AVATAR_ACTIVATE` into the same bus.
 
 State machine (owned solely by the orchestrator):
-`IDLE →(wake | AVATAR_ACTIVATE)→ LISTENING →(VAD end)→ THINKING →(first token)→ SPEAKING →(complete|cancel)→ IDLE`; barge-in: `SPEAKING → LISTENING`. The avatar renders these states; it never holds its own copy of state beyond the last event received.
+`IDLE →(wake | AVATAR_ACTIVATE)→ LISTENING →(VAD end)→ THINKING →(first token)→ SPEAKING →(complete|cancel)→ IDLE`; barge-in: `SPEAKING → LISTENING`. A transient `ERROR` state is published on stage failure (spoken + rendered by the avatar's error animation) before returning to `IDLE`. The avatar renders these states; it never holds its own copy of state beyond the last event received.
+
+Barge-in ordering note (v1.2): on voice barge-in the wake stage publishes `Cancel` *and* synchronously starts capture via the orchestrator's `on_wake` hook; `on_wake` therefore cancels any in-flight turn itself — Cancel handling must never be guarded on SPEAKING state alone (race: the state has already moved to LISTENING).
 
 ## 8. Hardware Tiering
 
