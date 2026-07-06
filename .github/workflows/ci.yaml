@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  headless:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install core deps (no audio/ML models in CI)
+        run: pip install pyyaml janus pytest pytest-asyncio ruff
+      - name: Lint
+        run: ruff check jarvis tests
+      - name: Headless test suite (avatar disabled — the pipeline must run identically)
+        run: python -m pytest tests/ -q --ignore=tests/avatar
+
+  avatar-offscreen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install avatar deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+          pip install pyyaml janus pytest pytest-asyncio PySide6 qasync pytest-qt
+      - name: Avatar tests (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ -d tests/avatar ] && ls tests/avatar/test_*.py >/dev/null 2>&1; then
+            python -m pytest tests/avatar -q
+          else
+            echo "No avatar tests yet (pre-M8)"
+          fi

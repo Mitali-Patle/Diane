@@ -1,0 +1,57 @@
+# Diane runtime configuration — single source of truth (§15).
+# Frozen at startup: changing anything here requires a restart,
+# EXCEPT avatar.active_pack which is only the startup default (DL-8).
+
+audio:
+  sample_rate: 16000
+  blocksize: 512
+  input_device: null          # null = system default
+  output_device: null
+
+wake:
+  model: "hey_jarvis"         # interim; swaps to "hi_diane" custom model at M7
+  threshold: 0.5
+  vad_threshold: 0.5
+  end_of_utterance_ms: 700    # Silero trailing-silence window
+
+stt:
+  model: "small"              # faster-whisper, int8 on CPU (Tier A)
+  compute_type: "int8"
+  language: "en"
+  contact_names: []           # glossary biased into initial_prompt (FR2)
+
+llm:
+  host: "http://localhost:11434"
+  model: "qwen2.5:3b-instruct"
+  context_turns: 10           # rolling context window (§12)
+
+vlm:
+  model: "moondream"
+
+tts:
+  voice: "en_GB-southern_english_female-low"
+  voices_dir: "models/piper"
+
+tools:
+  app_whitelist: ["firefox", "nautilus", "gnome-terminal", "gedit", "gnome-calculator"]
+  command_whitelist: ["ls", "df", "free", "date", "uptime", "cat", "whoami"]
+  dir_roots: ["~"]            # list_dir may only browse under these
+  timeout_s: 10
+
+logging:
+  app_log: "logs/app.log"
+  audit_log: "logs/audit.log" # append-only (P7)
+  level: "INFO"
+
+avatar:
+  enabled: true
+  packs_dir: "avatars/"
+  active_pack: "cat"          # startup default; runtime switches persist to avatar_state.json
+  scale: 1.0                  # 0.5-2.0
+  eye_tracking: true
+  eye_poll_hz: 30             # cap 30
+  fps_cap: 30
+  click_to_activate: true
+  click_through: false
+  blink: {min_s: 3, max_s: 8}
+  fidget: {min_s: 20, max_s: 60}
