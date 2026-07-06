@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 from jarvis import config, logs
+from jarvis.actions import Actions
 from jarvis.audio.input_thread import AudioInput
 from jarvis.brain.chunker import phrases
 from jarvis.brain.orchestrator import OllamaClient, Orchestrator
@@ -23,7 +24,7 @@ async def run() -> None:
     bus = Bus()
     log.info("Diane starting (wake=%s, llm=%s)", cfg["wake"]["model"], cfg["llm"]["model"])
 
-    orch = Orchestrator(bus, OllamaClient())
+    orch = Orchestrator(bus, OllamaClient(), tools=Actions())
     stt = SpeechToText()
     audio = AudioInput()
     stage = WakeVadStage(

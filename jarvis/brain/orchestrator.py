@@ -25,9 +25,12 @@ from jarvis.bus import (
     State,
     StateChanged,
     Token,
+    ToolCall,
 )
 
 log = logging.getLogger("jarvis.orchestrator")
+
+_MAX_TOOL_ROUNDS = 3  # tool -> result -> generation loops per turn; then answer as-is
 
 SYSTEM_PROMPT = (
     "You are Diane, a concise voice assistant running fully locally on the "
@@ -39,9 +42,23 @@ SYSTEM_PROMPT = (
 
 
 class LlmClient(Protocol):
-    """Streaming chat: messages in, content deltas out. Injectable for tests."""
+    """Streaming chat: yields text deltas (str) and proposed ToolCalls (§13).
 
-    def chat(self, messages: list[dict[str, str]]) -> AsyncIterator[str]: ...
+    The model only ever *proposes* tools; resolution and execution live in
+    actions/ (P1 — the model proposes, the code disposes).
+    """
+
+    def chat(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AsyncIterator[str | ToolCall]: ...
+
+
+class ToolRunner(Protocol):
+    """actions layer entry point: validate + execute one proposed call (P1/P2)."""
+
+    async def run(self, call: ToolCall, turn_id: int) -> str: ...
+
+    def specs(self) -> list[dict]: ...
 
 
 class OllamaClient:
@@ -54,20 +71,35 @@ class OllamaClient:
         self._client = ollama.AsyncClient(host=cfg["host"])
         self._model = cfg["model"]
 
-    async def chat(self, messages: list[dict[str, str]]) -> AsyncIterator[str]:
-        stream = await self._client.chat(model=self._model, messages=messages, stream=True)
+    async def chat(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AsyncIterator[str | ToolCall]:
+        stream = await self._client.chat(
+            model=self._model, messages=messages, stream=True, tools=tools or []
+        )
         async for part in stream:
-            delta = part["message"]["content"]
-            if delta:
-                yield delta
+            msg = part["message"]
+            for tc in msg.get("tool_calls") or []:
+                fn = tc["function"]
+                args = {k: str(v) for k, v in (fn.get("arguments") or {}).items()}
+                yield ToolCall(name=fn["name"], args=args)
+            if msg.get("content"):
+                yield msg["content"]
 
 
 class Orchestrator:
     """Owns state + context. Other stages call into it; it publishes StateChanged."""
 
-    def __init__(self, bus: Bus, llm: LlmClient, system_prompt: str = SYSTEM_PROMPT) -> None:
+    def __init__(
+        self,
+        bus: Bus,
+        llm: LlmClient,
+        tools: ToolRunner | None = None,
+        system_prompt: str = SYSTEM_PROMPT,
+    ) -> None:
         self._bus = bus
         self._llm = llm
+        self._tools = tools
         self._context_turns: int = config.get()["llm"]["context_turns"]
         self._messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         self._state = State.IDLE
@@ -151,15 +183,33 @@ class Orchestrator:
         self._trim_context()
 
         generated: list[str] = []
+        specs = self._tools.specs() if self._tools is not None else None
         try:
-            async for delta in self._llm.chat(list(self._messages)):
-                if self._cancelled.is_set():
-                    log.info("turn %d cancelled (barge-in)", final.turn_id)
+            for _round in range(_MAX_TOOL_ROUNDS):
+                pending_calls: list[ToolCall] = []
+                async for item in self._llm.chat(list(self._messages), tools=specs):
+                    if self._cancelled.is_set():
+                        log.info("turn %d cancelled (barge-in)", final.turn_id)
+                        break
+                    if isinstance(item, ToolCall):
+                        pending_calls.append(item)
+                        continue
+                    if not generated:
+                        self._set_state(State.SPEAKING)
+                    generated.append(item)
+                    yield Token(text=item, turn_id=final.turn_id)
+                if self._cancelled.is_set() or not pending_calls or self._tools is None:
                     break
-                if not generated:
-                    self._set_state(State.SPEAKING)
-                generated.append(delta)
-                yield Token(text=delta, turn_id=final.turn_id)
+                if _round == _MAX_TOOL_ROUNDS - 1:
+                    break  # no generation round left to consume results — don't execute
+                # FR8: execute proposed tools, feed results back, same turn.
+                for call in pending_calls:
+                    if self._cancelled.is_set():  # barge-in mid-tool-batch (P5)
+                        break
+                    output = await self._tools.run(call, final.turn_id)
+                    self._messages.append(
+                        {"role": "tool", "content": output, "tool_name": call.name}
+                    )
         except Exception:
             self._set_state(State.ERROR)
             log.exception("LLM stream failed, turn=%d", final.turn_id)

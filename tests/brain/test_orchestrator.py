@@ -18,7 +18,7 @@ class FakeLlm:
         self.delay = delay
         self.calls = []
 
-    async def chat(self, messages):
+    async def chat(self, messages, tools=None):
         self.calls.append(messages)
         for d in self.deltas:
             if self.delay:
