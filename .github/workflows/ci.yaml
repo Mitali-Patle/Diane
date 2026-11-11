@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
       - name: Install core deps (no audio/ML models in CI)
         # numpy: wake/VAD + STT tests import it (its absence failed every CI run)
-        run: pip install pyyaml janus numpy pytest pytest-asyncio ruff
+        run: pip install pyyaml janus numpy pytest pytest-asyncio ruff==0.15.20
       - name: Lint
         run: ruff check jarvis tests scripts
       - name: Headless test suite (avatar disabled — the pipeline must run identically)
