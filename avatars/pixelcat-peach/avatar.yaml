@@ -1,0 +1,30 @@
+name: "Mochi (peach)"
+version: 1
+author: "Diane built-in (code-drawn pixel art, scripts/make_pixel_cat.py)"
+frame_size: [168, 144]
+anchor: bottom-center
+pixel_grid: 3
+
+states:
+  idle:      {anim: idle,      fps: 3,  loop: true}
+  listening: {anim: listening, fps: 4,  loop: true}
+  thinking:  {anim: thinking,  fps: 3,  loop: true}
+  speaking:  {anim: speaking,  fps: 8,  loop: true}
+  error:     {anim: error,     fps: 1,  loop: false}
+
+fallbacks:
+  speaking: idle
+  thinking: idle
+  listening: idle
+  error: idle
+
+overlays:
+  blink: {anim: blink, fps: 10, only_in: [listening, speaking]}
+  fidgets: [fidget_ear, fidget_tail]
+
+eyes:
+  pupil: eyes/pupil.png
+  sockets:
+    - {center: [52, 66], radius: 3}
+    - {center: [100, 66], radius: 3}
+  hide_in: [idle, fidget_ear, fidget_tail, blink, thinking, error]

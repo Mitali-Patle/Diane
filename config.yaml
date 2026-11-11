@@ -1,0 +1,68 @@
+# Diane runtime configuration — single source of truth (§15).
+# Frozen at startup: changing anything here requires a restart,
+# EXCEPT avatar.active_pack which is only the startup default (DL-8).
+
+audio:
+  sample_rate: 16000
+  blocksize: 512
+  input_device: null          # null = system default
+  output_device: null
+  wake_chime: true            # soft "go ahead" chime when capture starts (SC1)
+
+wake:
+  model: "hi_diane"           # custom-trained (DL-12); fall back to "hey_jarvis" if flaky
+  threshold: 0.6
+  # Consecutive 80 ms windows over threshold before a wake fires. 2 halved
+  # false wakes on live room tone (2 -> 1 per minute, 2026-11-11) and still
+  # caught 6/7 of the owner's recorded "Hi Diane" clips. Set 1 if it misses you.
+  patience: 2
+  vad_threshold: 0.5
+  end_of_utterance_ms: 700    # Silero trailing-silence window
+
+stt:
+  model: "small"              # faster-whisper, int8 on CPU (Tier A)
+  compute_type: "int8"
+  language: "en"
+  contact_names: []           # glossary biased into initial_prompt (FR2)
+  cpu_threads: 4              # ctranslate2 threads (0 = library default)
+
+llm:
+  host: "http://localhost:11434"
+  model: "qwen2.5:3b-instruct"
+  context_turns: 10           # rolling context window (§12)
+  keep_alive: "24h"           # keep the model resident between turns (SC2)
+  options:                    # passed straight to Ollama
+    num_ctx: 4096             # smaller KV cache = faster prompt eval on CPU
+    num_predict: 256          # spoken answers are short; cap runaway replies
+    temperature: 0.6
+
+vlm:
+  model: "moondream"
+
+tts:
+  voice: "en_GB-southern_english_female-low"
+  voices_dir: "models/piper"
+
+tools:
+  app_whitelist: ["firefox", "nautilus", "gnome-terminal", "gedit", "gnome-calculator"]
+  command_whitelist: ["ls", "df", "free", "date", "uptime", "whoami"]
+  dir_roots: ["~"]            # list_dir may only browse under these
+  timeout_s: 10
+
+logging:
+  app_log: "logs/app.log"
+  audit_log: "logs/audit.log" # append-only (P7)
+  level: "INFO"
+
+avatar:
+  enabled: true
+  packs_dir: "avatars/"
+  active_pack: "pixelcat"     # startup default; runtime switches persist to avatar_state.json
+  scale: 1.0                  # 0.5-2.0
+  eye_tracking: true
+  eye_poll_hz: 30             # cap 30
+  fps_cap: 30
+  click_to_activate: true
+  click_through: false
+  blink: {min_s: 3, max_s: 8}
+  fidget: {min_s: 20, max_s: 60}

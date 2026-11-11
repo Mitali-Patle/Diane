@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+logs/
+models/
+avatar_state.json
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+.~lock.*#
+
+# superseded by HANDBOOK.md (the authoritative copy); kept local only
+HANDBOOK.md.pdf

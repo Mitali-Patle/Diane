@@ -1,0 +1,29 @@
+name: "Bolt"
+version: 1
+author: "Diane built-in (code-drawn, scripts/make_robot_pack.py)"
+frame_size: [128, 128]
+anchor: bottom-center
+
+states:
+  idle:      {anim: idle,      fps: 6,  loop: true}
+  listening: {anim: listening, fps: 8,  loop: true}
+  thinking:  {anim: thinking,  fps: 4,  loop: true}
+  speaking:  {anim: speaking,  fps: 12, loop: true}
+  error:     {anim: error,     fps: 1,  loop: false}
+
+fallbacks:
+  speaking: idle
+  thinking: idle
+  listening: idle
+  error: idle
+
+overlays:
+  blink: {anim: blink, fps: 18, only_in: [idle, listening, speaking]}
+  fidgets: [fidget_antenna, fidget_wave]
+
+eyes:
+  pupil: eyes/pupil.png
+  sockets:
+    - {center: [50, 48], radius: 4}
+    - {center: [78, 48], radius: 4}
+  hide_in: [blink, error, thinking]
