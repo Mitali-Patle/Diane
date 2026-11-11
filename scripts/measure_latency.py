@@ -11,6 +11,7 @@ Run:  .venv/bin/python scripts/measure_latency.py
 import asyncio
 import sys
 import time
+from contextlib import aclosing
 from pathlib import Path
 
 import numpy as np
@@ -70,14 +71,19 @@ async def main() -> None:
     for run in (1, 2):
         t0 = time.monotonic()
         first_token = first_audio = None
-        async for phrase in phrases(orch.run_turn(FinalTranscript("Tell me a fun fact.", run))):
-            if first_token is None:
-                first_token = time.monotonic() - t0
-            async for _chunk in tts.synthesize(phrase):
-                if first_audio is None:
-                    first_audio = time.monotonic() - t0
+        # aclosing: we stop after the first phrase — close the turn NOW rather
+        # than leaving it for the GC to finalize during the next turn.
+        turn = phrases(orch.run_turn(FinalTranscript("Tell me a fun fact.", run)))
+        async with aclosing(turn) as stream:
+            async for phrase in stream:
+                if first_token is None:
+                    first_token = time.monotonic() - t0
+                async with aclosing(tts.synthesize(phrase)) as chunks:
+                    async for _chunk in chunks:
+                        if first_audio is None:
+                            first_audio = time.monotonic() - t0
+                        break
                 break
-            break
         print(
             f"turn {run}: first phrase {first_token:.2f}s, first audio {first_audio:.2f}s "
             f"(budgets: token <1.5s, audio <2.3s total)"

@@ -330,3 +330,25 @@ async def test_barge_in_mid_tool_rolls_back_dangling_tool_calls():
     await barger
     assert not any("tool_calls" in m for m in orch._messages)
     assert not any(m["role"] == "tool" for m in orch._messages)
+
+
+async def test_consumer_closing_early_is_not_an_llm_failure():
+    """Stopping reading a turn early (aclose) must not log/speak an LLM error."""
+    bus = Bus()
+    q = bus.subscribe()
+    orch = Orchestrator(bus, FakeLlm(["a", "b", "c"]), external_playback=True)
+    gen = orch.run_turn(FinalTranscript("x", turn_id=1))
+    await gen.__anext__()
+    await gen.aclose()
+    assert State.ERROR not in states_from(q)
+
+
+async def test_late_finalized_turn_does_not_clobber_newer_turn():
+    orch = Orchestrator(Bus(), FakeLlm(["a"] * 5), external_playback=True)
+    old = orch.run_turn(FinalTranscript("one", turn_id=1))
+    await old.__anext__()                       # turn 1 abandoned mid-stream
+    new = orch.run_turn(FinalTranscript("two", turn_id=2))
+    await new.__anext__()                       # turn 2 in flight
+    await old.aclose()                          # turn 1 finalized late
+    assert orch._turn_active                    # turn 2 still active
+    await new.aclose()

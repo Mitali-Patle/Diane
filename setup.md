@@ -14,7 +14,10 @@ Without sudo, install user-level:
 
 ```bash
 mkdir -p ~/.local/opt/ollama
-curl -fL https://ollama.com/download/ollama-linux-amd64.tgz | tar -xz -C ~/.local/opt/ollama
+# CPU-only machines can skip the multi-GB GPU libraries (needs `zstd`):
+curl -fL https://ollama.com/download/ollama-linux-amd64.tar.zst | zstd -dc | \
+  tar -xf - -C ~/.local/opt/ollama --exclude='lib/ollama/cuda_*' \
+      --exclude='lib/ollama/rocm*' --exclude='lib/ollama/vulkan*'
 export PATH="$HOME/.local/opt/ollama/bin:$PATH"
 OLLAMA_HOST=127.0.0.1:11434 ollama serve &   # or: systemctl --user start diane-ollama
 ollama pull qwen2.5:3b-instruct

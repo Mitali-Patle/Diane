@@ -49,3 +49,21 @@ async def test_first_phrase_breaks_early_at_clause():
 async def test_only_first_phrase_breaks_at_clause():
     out = await _collect(["First sentence here.", " Then a long clause goes here,", " and more."])
     assert [p.text for p in out] == ["First sentence here.", "Then a long clause goes here, and more."]
+
+
+async def test_closing_chunker_closes_upstream_turn():
+    """Barge-in closes the chunker; the LLM turn beneath must close too, now."""
+    closed = []
+
+    async def turn():
+        try:
+            for t in ["One sentence here.", " Two sentences here.", " Three."]:
+                yield Token(text=t, turn_id=1)
+        finally:
+            closed.append(True)
+
+    gen = phrases(turn())
+    first = await gen.__anext__()
+    assert first.text == "One sentence here."
+    await gen.aclose()
+    assert closed == [True]

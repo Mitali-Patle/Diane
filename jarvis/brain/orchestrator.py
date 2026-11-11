@@ -77,6 +77,20 @@ class ToolRunner(Protocol):
     def specs(self) -> list[dict]: ...
 
 
+def _closed_by_consumer(exc: BaseException) -> bool:
+    """True if this exception arose while the turn generator was being closed
+    (GeneratorExit), e.g. a consumer stopped reading early. That is not an LLM
+    failure and must not be reported or spoken as one."""
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, GeneratorExit):
+            return True
+        cur = cur.__context__
+    return False
+
+
 def _is_connection_error(exc: BaseException) -> bool:
     """True for 'Ollama isn't there' failures (without importing httpx here)."""
     seen: set[int] = set()
@@ -359,6 +373,8 @@ class Orchestrator:
         except TurnCancelled:
             log.info("turn %d cancelled during tool execution (barge-in)", final.turn_id)
         except Exception as exc:  # noqa: BLE001
+            if _closed_by_consumer(exc):
+                raise GeneratorExit from None  # consumer stopped early; not a failure
             if _is_connection_error(exc):
                 log.error("LLM unreachable (%s), turn=%d", type(exc).__name__, final.turn_id)
                 failure = APOLOGY_UNREACHABLE
@@ -366,7 +382,10 @@ class Orchestrator:
                 log.exception("LLM stream failed, turn=%d", final.turn_id)
                 failure = APOLOGY_GENERIC
         finally:
-            self._turn_active = False
+            # Only touch turn accounting if no newer turn has started: a
+            # generator abandoned by its consumer may be finalized late.
+            if self._turn_id == final.turn_id:
+                self._turn_active = False
             if tool_round_start is not None:
                 # Interrupted mid-batch: drop the dangling tool_calls message and
                 # any partial results (trimming only cuts at user boundaries).

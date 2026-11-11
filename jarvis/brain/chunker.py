@@ -8,6 +8,7 @@ more.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from jarvis.bus import Phrase, Token
 
@@ -29,8 +30,27 @@ def _clause_at_end(text: str) -> bool:
     return text.rstrip().endswith(_CLAUSE)
 
 
+@asynccontextmanager
+async def _closing_upstream(tokens: AsyncIterator[Token]):
+    """Closing the chunker must close the token stream under it NOW (the LLM
+    turn, which holds an HTTP stream and turn accounting) — otherwise it is left
+    for the garbage collector to finalize later, possibly during the next turn."""
+    try:
+        yield tokens
+    finally:
+        aclose = getattr(tokens, "aclose", None)
+        if aclose is not None:
+            await aclose()
+
+
 async def phrases(tokens: AsyncIterator[Token]) -> AsyncIterator[Phrase]:
     """Group a Token stream into sentence-level Phrases; flush the tail at end."""
+    async with _closing_upstream(tokens):
+        async for phrase in _phrases(tokens):
+            yield phrase
+
+
+async def _phrases(tokens: AsyncIterator[Token]) -> AsyncIterator[Phrase]:
     buf = ""
     index = 0
     turn_id = 0

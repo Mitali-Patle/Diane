@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from contextlib import aclosing
 
 from jarvis import config, logs
 from jarvis.actions import Actions
@@ -113,16 +114,17 @@ async def run() -> None:
             gen = phrases(orch.run_turn(final))
             try:
                 async for phrase in gen:
-                    async for chunk in tts.synthesize(phrase):
-                        if not orch.is_voicing:
-                            break  # barge-in mid-synthesis: drop stale chunks (SC3)
-                        output.put(chunk)
-                        await output.wait_below(30.0)  # backpressure (SC6)
+                    async with aclosing(tts.synthesize(phrase)) as audio_chunks:
+                        async for chunk in audio_chunks:
+                            if not orch.is_voicing:
+                                break  # barge-in mid-synthesis: drop stale chunks (SC3)
+                            output.put(chunk)
+                            await output.wait_below(30.0)  # backpressure (SC6)
                     if not orch.is_voicing:
                         break
             finally:
-                # Close promptly so run_turn's turn-accounting finally runs NOW,
-                # not whenever the event loop garbage-finalizes the generator.
+                # Close promptly: phrases() closes run_turn beneath it, so the
+                # turn's accounting and HTTP stream finish NOW, not at GC time.
                 await gen.aclose()
             await output.drain()
             orch.finish_turn()
